@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #f7f5f0;
+  color: #16203f;
+}
+
+/* Underline that "highlights in" on hover, used for nav/footer text links */
+.ink-link {
+  background-image: linear-gradient(#eea60f, #eea60f);
+  background-size: 0% 2px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition: background-size 0.2s ease;
+}
+.ink-link:hover {
+  background-size: 100% 2px;
+}
+
+/* Visible keyboard focus ring, kept consistent across the app */
+:focus-visible {
+  outline: 2px solid #eea60f;
+  outline-offset: 2px;
+}
