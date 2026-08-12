@@ -8,7 +8,8 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { courses, getCourseBySlug, getInstructorBySlug } from "@/lib/data";
+import { courses, getCourseBySlug, getRelatedCourses } from "@/lib/courses";
+import { getInstructorBySlug } from "@/lib/instructors";
 import type { Metadata } from "next";
 import CourseCard from "@/components/CourseCard";
 import SectionTitle from "@/components/SectionTitle";
@@ -43,9 +44,7 @@ export default function CourseDetailsPage({ params }: Props) {
   const instructor = getInstructorBySlug(course.instructorSlug);
 
   // Related = same category, not this course, capped at 3.
-  const relatedCourses = courses
-    .filter((c) => c.category === course.category && c.slug !== course.slug)
-    .slice(0, 3);
+  const relatedCourses = getRelatedCourses(course);
 
   return (
     <>

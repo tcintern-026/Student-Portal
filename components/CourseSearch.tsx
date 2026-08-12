@@ -9,7 +9,8 @@
 
 import { useMemo, useState } from "react";
 import CourseCard from "@/components/CourseCard";
-import type { Course } from "@/lib/data";
+import Button from "@/components/Button";
+import type { Course } from "@/lib/courses";
 
 export default function CourseSearch({ courses }: { courses: Course[] }) {
   const [query, setQuery] = useState("");
@@ -23,6 +24,19 @@ export default function CourseSearch({ courses }: { courses: Course[] }) {
       )
     );
   }, [courses, query]);
+
+  // Two distinct empty states: the catalog itself has nothing in it yet
+  // (a data problem), vs. the catalog has courses but none match the
+  // current search (a query problem, solvable by clearing it).
+  if (courses.length === 0) {
+    return (
+      <div className="mx-auto max-w-6xl px-6 py-10">
+        <p className="font-body text-sm text-ink-900/60">
+          No courses are available yet — check back soon.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -39,9 +53,18 @@ export default function CourseSearch({ courses }: { courses: Course[] }) {
       />
 
       {filtered.length === 0 ? (
-        <p className="mt-10 font-body text-sm text-ink-900/60">
-          No courses match &ldquo;{query}&rdquo;.
-        </p>
+        <div className="mt-10">
+          <p className="font-body text-sm text-ink-900/60">
+            No courses match &ldquo;{query}&rdquo;.
+          </p>
+          <Button
+            variant="secondary"
+            className="mt-4"
+            onClick={() => setQuery("")}
+          >
+            Clear search
+          </Button>
+        </div>
       ) : (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((course) => (

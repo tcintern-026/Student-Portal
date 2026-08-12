@@ -1,8 +1,8 @@
-// lib/data.ts
+// lib/courses.ts
 //
-// Static "database" for the portal. Everything below is hard-coded for now —
-// swap this file for real fetch() calls to an API once a backend exists,
-// and the pages that import it won't need to change shape.
+// Course data lives on its own so it can grow (or get swapped for a real
+// fetch() call to an API) independently of instructor data — the two
+// change for different reasons and shouldn't be edited in the same file.
 
 export type Course = {
   slug: string; // used for the dynamic route: /courses/[slug]
@@ -15,34 +15,6 @@ export type Course = {
   description: string;
   syllabus: string[];
 };
-
-export type Instructor = {
-  slug: string;
-  name: string;
-  title: string;
-  bio: string;
-};
-
-export const instructors: Instructor[] = [
-  {
-    slug: "amina-khan",
-    name: "Dr. Amina Khan",
-    title: "Associate Professor, Web & Cloud Systems",
-    bio: "Amina spent six years building developer platforms before moving into teaching. She focuses on getting students from 'hello world' to shipped projects fast.",
-  },
-  {
-    slug: "hassan-raza",
-    name: "Hassan Raza",
-    title: "Lead Instructor, Artificial Intelligence",
-    bio: "Hassan researches applied machine learning and leads the AI Engineering track, with an emphasis on building intuition before diving into the math.",
-  },
-  {
-    slug: "sara-malik",
-    name: "Sara Malik",
-    title: "Senior Instructor, Cybersecurity",
-    bio: "Sara previously worked as a security analyst and now teaches offensive and defensive security fundamentals through hands-on labs.",
-  },
-];
 
 export const courses: Course[] = [
   {
@@ -123,6 +95,12 @@ export function getCourseBySlug(slug: string): Course | undefined {
   return courses.find((c) => c.slug === slug);
 }
 
-export function getInstructorBySlug(slug: string): Instructor | undefined {
-  return instructors.find((i) => i.slug === slug);
+export function getCoursesByInstructor(instructorSlug: string): Course[] {
+  return courses.filter((c) => c.instructorSlug === instructorSlug);
+}
+
+export function getRelatedCourses(course: Course, limit = 3): Course[] {
+  return courses
+    .filter((c) => c.category === course.category && c.slug !== course.slug)
+    .slice(0, limit);
 }

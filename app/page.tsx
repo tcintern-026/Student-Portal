@@ -7,7 +7,8 @@
 import CourseCard from "@/components/CourseCard";
 import Button from "@/components/Button";
 import SectionTitle from "@/components/SectionTitle";
-import { courses, instructors } from "@/lib/data";
+import { courses } from "@/lib/courses";
+import { instructors } from "@/lib/instructors";
 
 export default function HomePage() {
   const featured = courses.slice(0, 3);
@@ -42,11 +43,17 @@ export default function HomePage() {
           actionLabel="View all"
           actionHref="/courses"
         />
-        <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {featured.map((course) => (
-            <CourseCard key={course.slug} course={course} />
-          ))}
-        </div>
+        {featured.length === 0 ? (
+          <p className="mt-6 font-body text-sm text-ink-900/60">
+            No courses are available yet — check back soon.
+          </p>
+        ) : (
+          <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {featured.map((course) => (
+              <CourseCard key={course.slug} course={course} />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="mx-auto max-w-6xl px-6 pb-24">

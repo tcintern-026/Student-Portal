@@ -5,7 +5,7 @@
 
 import PageHeader from "@/components/PageHeader";
 import CourseSearch from "@/components/CourseSearch";
-import { courses } from "@/lib/data";
+import { courses } from "@/lib/courses";
 
 export const metadata = {
   title: "Courses · Student Course Portal",

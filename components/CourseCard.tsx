@@ -1,7 +1,7 @@
 // components/CourseCard.tsx
 
 import Link from "next/link";
-import type { Course } from "@/lib/data";
+import type { Course } from "@/lib/courses";
 
 export default function CourseCard({ course }: { course: Course }) {
   return (
