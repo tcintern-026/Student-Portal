@@ -1,6 +1,7 @@
 // app/contact/page.tsx
 
 import PageHeader from "@/components/PageHeader";
+import Button from "@/components/Button";
 
 export const metadata = {
   title: "Contact · Student Course Portal",
@@ -51,12 +52,7 @@ export default function ContactPage() {
             placeholder="How can we help?"
           />
         </div>
-        <button
-          type="submit"
-          className="rounded-md bg-ink-950 px-5 py-3 font-body text-sm font-medium text-paper transition hover:bg-ink-900"
-        >
-          Send message
-        </button>
+        <Button type="submit">Send message</Button>
       </form>
     </>
   );

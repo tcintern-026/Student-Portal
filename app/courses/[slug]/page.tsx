@@ -10,6 +10,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { courses, getCourseBySlug, getInstructorBySlug } from "@/lib/data";
 import type { Metadata } from "next";
+import CourseCard from "@/components/CourseCard";
+import SectionTitle from "@/components/SectionTitle";
 
 // The folder name [slug] becomes the key on `params` below.
 type Props = {
@@ -40,7 +42,13 @@ export default function CourseDetailsPage({ params }: Props) {
 
   const instructor = getInstructorBySlug(course.instructorSlug);
 
+  // Related = same category, not this course, capped at 3.
+  const relatedCourses = courses
+    .filter((c) => c.category === course.category && c.slug !== course.slug)
+    .slice(0, 3);
+
   return (
+    <>
     <article className="mx-auto max-w-3xl px-6 py-16">
       <Link href="/courses" className="ink-link font-body text-sm pb-0.5">
         &larr; Back to courses
@@ -89,5 +97,22 @@ export default function CourseDetailsPage({ params }: Props) {
         ))}
       </ol>
     </article>
+
+    {relatedCourses.length > 0 && (
+      <section className="mx-auto max-w-6xl px-6 pb-24">
+        <SectionTitle
+          title="Related courses"
+          description={`More in ${course.category}.`}
+          actionLabel="View all courses"
+          actionHref="/courses"
+        />
+        <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {relatedCourses.map((related) => (
+            <CourseCard key={related.slug} course={related} />
+          ))}
+        </div>
+      </section>
+    )}
+    </>
   );
 }
