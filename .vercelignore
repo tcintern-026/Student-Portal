@@ -1,0 +1,9 @@
+# .vercelignore
+#
+# This repo is a monorepo: Next.js frontend at the root, Express backend
+# in backend/. Vercel only needs to build the frontend — the backend runs
+# on Render/Railway/Koyeb instead (see README.md "Deployment" section for
+# why: it holds course data in memory, which doesn't survive Vercel's
+# stateless serverless functions).
+
+backend

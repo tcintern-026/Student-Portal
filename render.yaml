@@ -1,0 +1,24 @@
+# render.yaml — Render "Blueprint" for the backend.
+#
+# In the Render dashboard: New -> Blueprint -> connect this repo. Render
+# reads this file and creates the service below automatically, with its
+# root directory scoped to backend/ (this is a monorepo — the frontend
+# lives at the repo root, so Render must be told to only build/run the
+# backend folder).
+#
+# You can skip this file entirely and configure the same thing by hand
+# via "New -> Web Service" — see README.md for the manual steps.
+
+services:
+  - type: web
+    name: student-portal-api
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: CLIENT_ORIGIN
+        value: http://localhost:3000 # update to your deployed frontend URL after it exists
+      - key: NODE_VERSION
+        value: 20

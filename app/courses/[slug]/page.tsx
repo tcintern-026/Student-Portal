@@ -2,38 +2,48 @@
 //
 // THE DYNAMIC ROUTE. Square brackets in a folder name — [slug] — tell
 // Next.js "match anything here and hand it to me as a param." So this one
-// file serves /courses/web-development, /courses/ai-engineering,
-// /courses/cybersecurity-fundamentals, and any future course slug, without
-// a new file per course.
+// file serves /courses/web-development, /courses/ai-engineering, and any
+// other course slug the API knows about, without a new file per course.
+//
+// Now backed by the Express API instead of the static lib/courses.ts data,
+// so this can no longer be statically generated at build time (courses can
+// be added/removed at runtime) — it fetches per-request instead.
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { courses, getCourseBySlug, getRelatedCourses } from "@/lib/courses";
-import { getInstructorBySlug } from "@/lib/instructors";
 import type { Metadata } from "next";
+import { getInstructorBySlug } from "@/lib/instructors";
+import { getCourse, getCourses, ApiError } from "@/lib/api";
+import type { Course } from "@/lib/courses";
 import CourseCard from "@/components/CourseCard";
 import SectionTitle from "@/components/SectionTitle";
 
-// The folder name [slug] becomes the key on `params` below.
 type Props = {
   params: { slug: string };
 };
 
-// generateStaticParams tells Next.js, at build time, every slug value this
-// route should be pre-rendered for — so /courses/web-development is built
-// as a static page instead of computed per-request.
-export function generateStaticParams() {
-  return courses.map((course) => ({ slug: course.slug }));
+// Data changes at runtime now (via the API), so opt this route out of
+// static generation/caching rather than baking in stale courses.
+export const dynamic = "force-dynamic";
+
+async function loadCourse(slug: string): Promise<Course | null> {
+  try {
+    return await getCourse(slug);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return null;
+    }
+    throw err;
+  }
 }
 
-// Dynamic <title> per course, built from the same params.
-export function generateMetadata({ params }: Props): Metadata {
-  const course = getCourseBySlug(params.slug);
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const course = await loadCourse(params.slug);
   return { title: course ? `${course.title} · Student Course Portal` : "Course not found" };
 }
 
-export default function CourseDetailsPage({ params }: Props) {
-  const course = getCourseBySlug(params.slug);
+export default async function CourseDetailsPage({ params }: Props) {
+  const course = await loadCourse(params.slug);
 
   // No matching course for this slug — render the nearest not-found.tsx
   // (falls back to app/not-found.tsx here since this route has none of its own).
@@ -43,8 +53,12 @@ export default function CourseDetailsPage({ params }: Props) {
 
   const instructor = getInstructorBySlug(course.instructorSlug);
 
-  // Related = same category, not this course, capped at 3.
-  const relatedCourses = getRelatedCourses(course);
+  // Related = same category, not this course, capped at 3. The API has no
+  // dedicated "related" endpoint, so fetch the full list and filter here.
+  const allCourses = await getCourses();
+  const relatedCourses = allCourses
+    .filter((c) => c.category === course.category && c.slug !== course.slug)
+    .slice(0, 3);
 
   return (
     <>
@@ -87,14 +101,18 @@ export default function CourseDetailsPage({ params }: Props) {
       </dl>
 
       <h2 className="mt-10 font-display text-xl font-bold text-ink-950">Syllabus</h2>
-      <ol className="mt-4 space-y-3">
-        {course.syllabus.map((item, i) => (
-          <li key={item} className="flex gap-4 font-body text-sm text-ink-900/80">
-            <span className="font-display text-highlight-500">{String(i + 1).padStart(2, "0")}</span>
-            {item}
-          </li>
-        ))}
-      </ol>
+      {course.syllabus.length === 0 ? (
+        <p className="mt-4 font-body text-sm text-ink-900/60">No syllabus items yet.</p>
+      ) : (
+        <ol className="mt-4 space-y-3">
+          {course.syllabus.map((item, i) => (
+            <li key={item} className="flex gap-4 font-body text-sm text-ink-900/80">
+              <span className="font-display text-highlight-500">{String(i + 1).padStart(2, "0")}</span>
+              {item}
+            </li>
+          ))}
+        </ol>
+      )}
     </article>
 
     {relatedCourses.length > 0 && (

@@ -2,10 +2,13 @@
 //
 // This file living at app/courses/page.tsx is what makes "/courses" a route —
 // the FOLDER NAME becomes the URL segment, no router config needed.
+//
+// Kept as a server component only for the `metadata` export; all the
+// actual data-fetching/state lives in CourseCatalog (a client component),
+// since it needs useState/useEffect to talk to the Express API.
 
 import PageHeader from "@/components/PageHeader";
-import CourseSearch from "@/components/CourseSearch";
-import { courses } from "@/lib/courses";
+import CourseCatalog from "@/components/CourseCatalog";
 
 export const metadata = {
   title: "Courses · Student Course Portal",
@@ -17,12 +20,9 @@ export default function CoursesPage() {
       <PageHeader
         eyebrow="Catalog"
         title="All courses"
-        description="Static data for now — this list will come from an API once a backend exists."
+        description="Fetched live from the Express API — add, edit, or delete a course and it updates here."
       />
-      {/* Course data is fetched/rendered here on the server; CourseSearch
-          (a client component) only owns the search-input state and the
-          filtering, so we're not shipping the whole page as client JS. */}
-      <CourseSearch courses={courses} />
+      <CourseCatalog />
     </>
   );
 }
