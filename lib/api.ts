@@ -24,6 +24,21 @@ export class ApiError extends Error {
 // are server-generated, so they're excluded here.
 export type CourseInput = Omit<Course, "slug"> & { slug?: string };
 
+export type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+export type CoursesQuery = {
+  category?: string;
+  level?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -50,8 +65,19 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export function getCourses(): Promise<Course[]> {
-  return request<Course[]>("/courses");
+// GET /api/courses is paginated — returns a page of courses plus meta
+// (page/limit/total/totalPages) rather than a bare array, so callers can
+// build pagination controls without a separate count request.
+export function getCourses(params: CoursesQuery = {}): Promise<{ data: Course[]; meta: PaginationMeta }> {
+  const search = new URLSearchParams();
+  if (params.category) search.set("category", params.category);
+  if (params.level) search.set("level", params.level);
+  if (params.search) search.set("search", params.search);
+  if (params.page) search.set("page", String(params.page));
+  if (params.limit) search.set("limit", String(params.limit));
+
+  const qs = search.toString();
+  return request(`/courses${qs ? `?${qs}` : ""}`);
 }
 
 export function getCourse(slug: string): Promise<Course> {

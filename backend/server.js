@@ -9,6 +9,9 @@ const express = require("express");
 const cors = require("cors");
 
 const coursesRouter = require("./routes/courses");
+const instructorsRouter = require("./routes/instructors");
+const studentsRouter = require("./routes/students");
+const enrollmentsRouter = require("./routes/enrollments");
 const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
@@ -31,6 +34,9 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/courses", coursesRouter);
+app.use("/api/instructors", instructorsRouter);
+app.use("/api/students", studentsRouter);
+app.use("/api/enrollments", enrollmentsRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

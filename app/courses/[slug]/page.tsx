@@ -12,7 +12,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getInstructorBySlug } from "@/lib/instructors";
 import { getCourse, getCourses, ApiError } from "@/lib/api";
 import type { Course } from "@/lib/courses";
 import CourseCard from "@/components/CourseCard";
@@ -51,14 +50,11 @@ export default async function CourseDetailsPage({ params }: Props) {
     notFound();
   }
 
-  const instructor = getInstructorBySlug(course.instructorSlug);
-
-  // Related = same category, not this course, capped at 3. The API has no
-  // dedicated "related" endpoint, so fetch the full list and filter here.
-  const allCourses = await getCourses();
-  const relatedCourses = allCourses
-    .filter((c) => c.category === course.category && c.slug !== course.slug)
-    .slice(0, 3);
+  // Related = same category, not this course, capped at 3 — filtered
+  // server-side via ?category= rather than fetching every course and
+  // filtering here.
+  const { data: sameCategoryCourses } = await getCourses({ category: course.category, limit: 4 });
+  const relatedCourses = sameCategoryCourses.filter((c) => c.slug !== course.slug).slice(0, 3);
 
   return (
     <>
@@ -89,9 +85,9 @@ export default async function CourseDetailsPage({ params }: Props) {
         <div className="col-span-2">
           <dt className="font-body text-xs uppercase tracking-wide text-ink-900/50">Instructor</dt>
           <dd className="mt-1 font-display font-semibold text-ink-950">
-            {instructor ? (
-              <Link href={`/instructors#${instructor.slug}`} className="ink-link pb-0.5">
-                {instructor.name}
+            {course.instructorName ? (
+              <Link href={`/instructors#${course.instructorSlug}`} className="ink-link pb-0.5">
+                {course.instructorName}
               </Link>
             ) : (
               "TBA"

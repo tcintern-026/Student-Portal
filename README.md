@@ -1,23 +1,34 @@
 # Student Course Portal
 
-A small full-stack project: a Next.js App Router frontend and an Express
-REST API backend, built to learn frontend/backend communication, REST
-API design, and the App Router's file-based routing.
+A small full-stack project: a Next.js App Router frontend, an Express
+REST API backend, and a Postgres database (hosted on Neon) — built to
+learn frontend/backend communication, REST API design, SQL, and the App
+Router's file-based routing.
 
 ## Run it
 
-This is two apps — start both.
+This is two apps plus a database — set up the database first, then start
+both apps.
 
-**Backend (Express API, port 4000):**
+**1. Database (Neon Postgres)** — see the [Database](#database-postgres-on-neon)
+section below for creating the project and getting a connection string.
+Once you have one:
 
 ```bash
 cd backend
 npm install
-cp .env.example .env
+cp .env.example .env   # then paste your Neon DATABASE_URL into it
+npm run migrate         # creates the tables
+npm run seed             # populates sample instructors/courses/students/enrollments
+```
+
+**2. Backend (Express API, port 4000):**
+
+```bash
 npm run dev      # nodemon, restarts on changes — or `npm start` for plain node
 ```
 
-**Frontend (Next.js, port 3000)**, in a second terminal from the repo root:
+**3. Frontend (Next.js, port 3000)**, in a second terminal from the repo root:
 
 ```bash
 npm install
@@ -26,36 +37,72 @@ npm run dev
 ```
 
 Then open http://localhost:3000. The Courses page fetches live from the
-API at http://localhost:4000/api — start the backend first, or the
-catalog will show its error state with a "Try again" button.
+API at http://localhost:4000/api — start the database and backend
+first, or the catalog will show its error state with a "Try again"
+button.
 
 ## Backend
 
 ```
 backend/
-  server.js                 # entry point: CORS, JSON body parsing, routes, error handlers
-  routes/courses.js         # GET/POST/PUT/DELETE /api/courses
-  data/courses.js           # in-memory "database" + slug/id generation
-  middleware/validateCourse.js  # request validation for POST/PUT
-  middleware/errorHandler.js    # centralized 404 + error JSON responses
-  utils/ApiError.js         # Error subclass carrying an HTTP status code
-  utils/slugify.js          # title -> url-safe id, used when creating a course
-  .env.example              # PORT, CLIENT_ORIGIN (CORS allow-list)
+  server.js                     # entry point: CORS, JSON body parsing, routes, error handlers
+  db/
+    pool.js                     # pg connection pool, reads DATABASE_URL
+    schema.sql                  # CREATE TABLE statements (instructors, courses, students, enrollments)
+    migrate.js                  # npm run migrate — applies schema.sql
+    seed.js                     # npm run seed — sample data for all four tables
+  routes/
+    courses.js                  # GET/POST/PUT/DELETE /api/courses (+ filter/search/pagination)
+    instructors.js               # GET/POST/PUT/DELETE /api/instructors
+    students.js                  # GET/POST/PUT/DELETE /api/students
+    enrollments.js                # GET/POST/DELETE /api/enrollments (student <-> course join)
+  data/                          # one file per table — all the actual SQL lives here, routes never write SQL directly
+    courses.js
+    instructors.js
+    students.js
+    enrollments.js
+  middleware/
+    validateCourse.js            # request validation for POST/PUT
+    validateInstructor.js
+    validateStudent.js            # includes email format check
+    validateEnrollment.js
+    errorHandler.js               # centralized 404/validation/Postgres-error -> JSON responses
+  utils/
+    ApiError.js                   # Error subclass carrying an HTTP status code
+    slugify.js                    # title/name -> url-safe slug, used when creating a course/instructor
+    pagination.js                  # ?page=/?limit= parsing shared by routes that support it
+  .env.example                    # PORT, CLIENT_ORIGIN, DATABASE_URL
 ```
 
-Endpoints:
+### Endpoints
+
+**Courses**
 
 | Method | Path                | Notes                                              |
 | ------ | ------------------- | --------------------------------------------------- |
-| GET    | `/api/courses`       | Optional `?category=` and `?level=` filters         |
-| GET    | `/api/courses/:id`   | 404 if the id doesn't exist                         |
-| POST   | `/api/courses`       | 201 + created course; 400 with `details[]` if invalid |
-| PUT    | `/api/courses/:id`   | Partial update; 400 if invalid, 404 if missing       |
-| DELETE | `/api/courses/:id`   | 204 on success, 404 if missing                       |
-| GET    | `/api/health`        | Liveness check                                       |
+| GET    | `/api/courses`       | Optional `?category=`, `?level=`, `?search=`, `?page=`, `?limit=` — returns `{ data, meta }` |
+| GET    | `/api/courses/:slug` | 404 if the slug doesn't exist                        |
+| POST   | `/api/courses`       | 201 + created course; 400 with `details[]` if invalid; 400 if `instructorSlug` doesn't exist |
+| PUT    | `/api/courses/:slug` | Partial update; 400 if invalid, 404 if missing        |
+| DELETE | `/api/courses/:slug` | 204 on success, 404 if missing                        |
 
-Data resets to the four seed courses every time the server restarts —
-there's no database yet, just an array in `data/courses.js`.
+**Instructors** — same GET/POST/PUT/DELETE shape at `/api/instructors`, keyed by `:slug`.
+
+**Students** — same shape at `/api/students`, keyed by `:id`. Email must be unique (409 on a duplicate) and valid-looking (400 otherwise).
+
+**Enrollments** — the many-to-many join between students and courses:
+
+| Method | Path                   | Notes                                                        |
+| ------ | ---------------------- | -------------------------------------------------------------- |
+| GET    | `/api/enrollments`      | Optional `?studentId=` or `?courseSlug=` filters                |
+| POST   | `/api/enrollments`      | Body: `{ studentEmail, courseSlug }`. 400 if either doesn't exist; 409 if already enrolled |
+| DELETE | `/api/enrollments/:id`   | Unenroll. 204 on success, 404 if missing                        |
+
+Plus `GET /api/health` as a liveness check.
+
+Deleting an instructor sets `instructor_id` to `NULL` on their courses
+(the course itself isn't deleted). Deleting a student cascades and
+removes their enrollments automatically.
 
 Try it with curl:
 
@@ -63,10 +110,70 @@ Try it with curl:
 curl http://localhost:4000/api/courses
 curl -X POST http://localhost:4000/api/courses \
   -H "Content-Type: application/json" \
-  -d '{"title":"Cloud Computing","category":"Software Engineering","level":"Intermediate","durationWeeks":9,"summary":"Intro to cloud."}'
+  -d '{"title":"Cloud Computing","category":"Software Engineering","level":"Intermediate","durationWeeks":9,"summary":"Intro to cloud.","instructorSlug":"amina-khan"}'
+curl -X POST http://localhost:4000/api/enrollments \
+  -H "Content-Type: application/json" \
+  -d '{"studentEmail":"aiman.raza@example.com","courseSlug":"web-development"}'
 ```
 
-Or import the endpoints above into Postman/Insomnia for interactive testing.
+Or import the endpoints above into Postman/Insomnia for interactive
+testing — every validation and not-found case returns a JSON body with
+an `error` field (and `details[]` for validation failures), so you can
+assert on the response shape directly.
+
+## Database (Postgres on Neon)
+
+**1. Create the project.** Sign up / log in at
+[neon.tech](https://neon.tech) → **New Project**. Pick any name and
+region — the free tier is plenty for this.
+
+**2. Get the connection string.** On the project dashboard, find
+**Connection Details** and copy the **pooled** connection string (it
+looks like `postgresql://user:password@ep-xxxx-pooler.region.aws.neon.tech/dbname?sslmode=require`).
+The pooled variant matters more once this is deployed (Render's free
+tier + serverless Postgres can otherwise exhaust connection limits
+under load), but works fine for local dev too.
+
+**3. Set it locally.** Paste that string into `backend/.env` as
+`DATABASE_URL`.
+
+**4. Create the tables and seed data:**
+
+```bash
+cd backend
+npm run migrate   # applies db/schema.sql
+npm run seed        # populates instructors/courses/students/enrollments
+```
+
+Both are safe to re-run — `schema.sql` uses `IF NOT EXISTS`, and
+`seed.js` uses `ON CONFLICT DO NOTHING` on each table's natural unique
+key (slug/email), so re-running never duplicates rows.
+
+**5. Inspect the data** either via `psql "$DATABASE_URL"`, or Neon's
+built-in SQL Editor in the dashboard — both work identically to any
+other Postgres instance.
+
+### Schema
+
+```
+instructors                courses                      students
+ id (PK)                    id (PK)                       id (PK)
+ slug (unique)               slug (unique)                  email (unique)
+ name                         title, category, level         name
+ title, bio                    duration_weeks
+                                instructor_id (FK -> instructors.id, ON DELETE SET NULL)
+                                summary, description, syllabus[]
+
+                            enrollments
+                             id (PK)
+                             student_id (FK -> students.id, ON DELETE CASCADE)
+                             course_id  (FK -> courses.id,  ON DELETE CASCADE)
+                             UNIQUE(student_id, course_id)
+```
+
+One instructor teaches many courses (1-to-many); students and courses
+are many-to-many through `enrollments`. See `backend/db/schema.sql` for
+the full DDL including indexes.
 
 ## Project structure
 
@@ -110,13 +217,16 @@ they were out of scope for this pass, but could be pointed at the same
 API helpers later with no change to their JSX.
 
 - `/courses` renders `<CourseCatalog />`, a client component: it fetches
-  on mount, shows `CourseCardSkeleton` cards while loading, shows an
-  error state with a "Try again" button on failure, and re-fetches/patches
-  local state after every add/edit/delete so the UI reflects the API
-  immediately without a full reload.
+  on mount (and whenever search/level/page change), shows
+  `CourseCardSkeleton` cards while loading, shows an error state with a
+  "Try again" button on failure, and re-fetches after every add/edit/delete
+  so the UI reflects the database immediately. Search and level filtering
+  happen server-side (`?search=`/`?level=` sent to the API), not by
+  filtering an already-fetched array in the browser.
 - `/courses/[slug]` is a server component (`export const dynamic =
   "force-dynamic"`, since course data can now change at runtime) that
-  fetches the single course and calls `notFound()` on a 404 from the API.
+  fetches the single course — including its instructor's name/slug via
+  a SQL join — and calls `notFound()` on a 404 from the API.
 
 ## How the routing maps to the file system
 
@@ -127,9 +237,10 @@ API helpers later with no change to their JSX.
 - A folder name in square brackets — `[slug]` — is a **dynamic segment**.
   `app/courses/[slug]/page.tsx` matches `/courses/web-development`,
   `/courses/ai-engineering`, or any other slug, and receives it as
-  `params.slug`.
-- `generateStaticParams()` in the dynamic route tells Next.js which slugs
-  to pre-render at build time (one static page per course).
+  `params.slug`. It's marked `dynamic = "force-dynamic"` rather than
+  using `generateStaticParams()`, since course slugs live in the
+  database and can change at runtime — nothing here is pre-rendered at
+  build time.
 - `not-found.tsx` is rendered automatically for any unmatched URL, and
   also when code explicitly calls `notFound()` (used here when a course
   slug doesn't exist).
@@ -137,20 +248,34 @@ API helpers later with no change to their JSX.
 ## Concepts this project touches
 
 - **Frontend/backend communication** — `lib/api.ts` on the frontend talks
-  to `backend/routes/courses.js` over plain `fetch()`.
-- **REST APIs** — five endpoints, one resource, standard HTTP verbs.
+  to the Express routes over plain `fetch()`.
+- **REST APIs** — four resources (courses, instructors, students,
+  enrollments), standard HTTP verbs, consistent JSON shapes.
+- **SQL & relational data** — raw `pg` queries (no ORM) in `data/*.js`:
+  joins (courses ⨝ instructors, enrollments ⨝ students ⨝ courses),
+  foreign keys with `ON DELETE SET NULL`/`CASCADE`, a `UNIQUE` constraint
+  enforcing "can't enroll twice", and a window function (`COUNT(*)
+  OVER()`) to get pagination totals in the same query as the page of rows.
 - **CORS** — the backend only accepts requests from `CLIENT_ORIGIN`
   (see `backend/server.js`); try changing `NEXT_PUBLIC_API_URL` to a
   different port and you'll see a CORS error in the browser console.
-- **Environment variables** — `backend/.env` (`PORT`, `CLIENT_ORIGIN`)
-  and `.env.local` (`NEXT_PUBLIC_API_URL`) keep URLs/config out of the
-  code.
-- **Request validation & error handling** — `middleware/validateCourse.js`
-  rejects bad POST/PUT bodies with a 400 and a list of what's wrong;
-  `middleware/errorHandler.js` centralizes every error response so route
-  handlers just `next(new ApiError(...))`.
+- **Environment variables** — `backend/.env` (`PORT`, `CLIENT_ORIGIN`,
+  `DATABASE_URL`) and `.env.local` (`NEXT_PUBLIC_API_URL`) keep secrets
+  and URLs out of the code — `DATABASE_URL` in particular should never
+  be committed (see `.gitignore`).
+- **Request validation & error handling** — one `middleware/validate*.js`
+  file per resource rejects bad POST/PUT bodies with a 400 and a list of
+  what's wrong; `middleware/errorHandler.js` centralizes every error
+  response, including translating raw Postgres error codes (unique
+  violation, foreign key violation, etc.) into clean 4xx JSON instead of
+  a generic 500.
 - **HTTP status codes** — 200/201/204 on success, 400 on bad input, 404
-  on a missing course, 500 for anything unexpected.
+  on a missing record, 409 on a conflict (duplicate email, double
+  enrollment), 500 for anything unexpected.
+- **Filtering, search & pagination** — `GET /api/courses` supports
+  `?category=`, `?level=`, `?search=`, `?page=`, `?limit=`, all
+  implemented as SQL `WHERE`/`ILIKE`/`LIMIT`/`OFFSET` rather than
+  filtering an array after fetching everything.
 
 ## Deployment
 
@@ -179,14 +304,29 @@ connect the repo → set:
 - **Root Directory:** `backend`
 - **Build Command:** `npm install`
 - **Start Command:** `npm start`
-- **Environment Variable:** `CLIENT_ORIGIN` = your frontend's URL (use
-  `http://localhost:3000` for now if the frontend isn't deployed yet —
-  see step 4)
+- **Environment Variables:**
+  - `CLIENT_ORIGIN` = your frontend's URL (use `http://localhost:3000`
+    for now if the frontend isn't deployed yet — see step 5)
+  - `DATABASE_URL` = your Neon connection string (same one from
+    `backend/.env` — Neon is already reachable from anywhere, so the
+    same database works for both local dev and the deployed API; no
+    separate "production database" needed for a project this size)
 
 Don't set `PORT` yourself — Render injects its own and `server.js`
 already reads `process.env.PORT`.
 
-**3. Verify it's live** once the build finishes:
+**3. Apply the schema to the same database** (only needs doing once —
+skip this if you already ran `npm run migrate && npm run seed` locally
+against this same `DATABASE_URL`, since it's the same Neon database
+either way):
+
+```bash
+cd backend
+npm run migrate
+npm run seed
+```
+
+**4. Verify it's live** once the build finishes:
 
 ```bash
 curl https://YOUR-SERVICE-NAME.onrender.com/api/health
@@ -197,7 +337,7 @@ curl https://YOUR-SERVICE-NAME.onrender.com/api/courses
 request after a while can take ~30–60s to respond as it wakes back up.
 That's expected, not a bug.)
 
-**4. Point the frontend at the deployed API.** Update `.env.local`:
+**5. Point the frontend at the deployed API.** Update `.env.local`:
 
 ```
 NEXT_PUBLIC_API_URL=https://YOUR-SERVICE-NAME.onrender.com/api
@@ -208,7 +348,7 @@ you also deploy the frontend (e.g. Vercel), set the same
 `NEXT_PUBLIC_API_URL` as an environment variable in that project's
 dashboard rather than relying on `.env.local`, which isn't committed.
 
-**5. Close the CORS loop.** Once the frontend has its own deployed URL,
+**6. Close the CORS loop.** Once the frontend has its own deployed URL,
 go back to the Render service's environment variables and update
 `CLIENT_ORIGIN` to that URL (comma-separate it with `http://localhost:3000`
 to keep local dev working too), then redeploy. Until this matches, the

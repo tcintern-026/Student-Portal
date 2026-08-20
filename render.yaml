@@ -20,5 +20,7 @@ services:
     envVars:
       - key: CLIENT_ORIGIN
         value: http://localhost:3000 # update to your deployed frontend URL after it exists
+      - key: DATABASE_URL
+        sync: false # secret — Render will prompt you to paste your Neon connection string during setup
       - key: NODE_VERSION
         value: 20

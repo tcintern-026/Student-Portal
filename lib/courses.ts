@@ -11,6 +11,7 @@ export type Course = {
   level: "Beginner" | "Intermediate" | "Advanced";
   durationWeeks: number;
   instructorSlug: string;
+  instructorName?: string | null; // populated by the API via a join; absent on the static seed data below
   summary: string;
   description: string;
   syllabus: string[];

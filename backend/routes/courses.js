@@ -1,62 +1,75 @@
 // routes/courses.js
 //
-// The five endpoints from the challenge brief. Handlers stay thin —
-// data/courses.js owns the actual storage/logic, and errors go through
-// next(err) to the centralized handler in middleware/errorHandler.js.
+// GET / supports ?category=, ?level=, ?search=, ?page=, ?limit= — see
+// utils/pagination.js for the page/limit parsing and data/courses.js for
+// the actual SQL. Every handler is async and wrapped so a thrown/rejected
+// error reaches next(err) and the centralized error handler, rather than
+// crashing the process (Express 4 doesn't auto-catch async errors).
 
 const express = require("express");
 const store = require("../data/courses");
 const { ApiError } = require("../utils/ApiError");
 const { validateCourseCreate, validateCourseUpdate } = require("../middleware/validateCourse");
+const { parsePagination, buildMeta } = require("../utils/pagination");
 
 const router = express.Router();
 
-// GET /api/courses — list all courses, with optional ?category= and ?level= filters
-router.get("/", (req, res) => {
-  let results = store.getAll();
+// Wraps an async handler so rejected promises go to next(err) instead of
+// being swallowed / crashing the server.
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-  const { category, level } = req.query;
-  if (category) {
-    results = results.filter((c) => c.category.toLowerCase() === String(category).toLowerCase());
-  }
-  if (level) {
-    results = results.filter((c) => c.level.toLowerCase() === String(level).toLowerCase());
-  }
+// GET /api/courses — list, with filtering, search, and pagination
+router.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const { category, level, search } = req.query;
+    const { page, limit, offset } = parsePagination(req.query);
 
-  res.json(results);
-});
+    const { rows, total } = await store.getAll({ category, level, search, limit, offset });
 
-// GET /api/courses/:id — single course
-router.get("/:id", (req, res, next) => {
-  const course = store.getById(req.params.id);
-  if (!course) {
-    return next(new ApiError(404, `Course "${req.params.id}" not found`));
-  }
-  res.json(course);
-});
+    res.json({ data: rows, meta: buildMeta({ page, limit, total }) });
+  })
+);
 
-// POST /api/courses — create
-router.post("/", validateCourseCreate, (req, res) => {
-  const course = store.create(req.body);
-  res.status(201).json(course);
-});
+// GET /api/courses/:slug
+router.get(
+  "/:slug",
+  asyncHandler(async (req, res, next) => {
+    const course = await store.getBySlug(req.params.slug);
+    if (!course) return next(new ApiError(404, `Course "${req.params.slug}" not found`));
+    res.json(course);
+  })
+);
 
-// PUT /api/courses/:id — update (partial)
-router.put("/:id", validateCourseUpdate, (req, res, next) => {
-  const updated = store.update(req.params.id, req.body);
-  if (!updated) {
-    return next(new ApiError(404, `Course "${req.params.id}" not found`));
-  }
-  res.json(updated);
-});
+// POST /api/courses
+router.post(
+  "/",
+  validateCourseCreate,
+  asyncHandler(async (req, res) => {
+    const course = await store.create(req.body);
+    res.status(201).json(course);
+  })
+);
 
-// DELETE /api/courses/:id — delete
-router.delete("/:id", (req, res, next) => {
-  const removed = store.remove(req.params.id);
-  if (!removed) {
-    return next(new ApiError(404, `Course "${req.params.id}" not found`));
-  }
-  res.status(204).send();
-});
+// PUT /api/courses/:slug — partial update
+router.put(
+  "/:slug",
+  validateCourseUpdate,
+  asyncHandler(async (req, res, next) => {
+    const updated = await store.update(req.params.slug, req.body);
+    if (!updated) return next(new ApiError(404, `Course "${req.params.slug}" not found`));
+    res.json(updated);
+  })
+);
+
+// DELETE /api/courses/:slug
+router.delete(
+  "/:slug",
+  asyncHandler(async (req, res, next) => {
+    const removed = await store.remove(req.params.slug);
+    if (!removed) return next(new ApiError(404, `Course "${req.params.slug}" not found`));
+    res.status(204).send();
+  })
+);
 
 module.exports = router;

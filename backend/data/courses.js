@@ -1,151 +1,178 @@
 // data/courses.js
 //
-// In-memory "database". Same shape as the old frontend lib/courses.ts,
-// with a top-level `id` field added (== slug) so routes can talk about
-// "/api/courses/:id" without caring that the id happens to look like a
-// slug. Swap this module for a real DB layer later without touching the
-// route handlers, since they only call the functions exported here.
+// All SQL for the courses table lives here — routes call these functions
+// and never write SQL themselves. Rows come back from `pg` with snake_case
+// columns; `mapCourse` translates each row into the camelCase shape the
+// API (and frontend) expects, matching what the old in-memory version
+// returned.
 
+const { query } = require("../db/pool");
 const { slugify } = require("../utils/slugify");
+const { ApiError } = require("../utils/ApiError");
 
-let courses = [
-  {
-    id: "web-development",
-    slug: "web-development",
-    title: "Web Development",
-    category: "Software Engineering",
-    level: "Beginner",
-    durationWeeks: 10,
-    instructorSlug: "amina-khan",
-    summary: "HTML, CSS, and JavaScript fundamentals through to a deployed full-stack app.",
-    description:
-      "A project-driven introduction to building for the web. Starts with semantic HTML and CSS layout, moves through JavaScript and the DOM, and ends with a full-stack app built on a modern framework and deployed to production.",
-    syllabus: [
-      "Semantic HTML & responsive CSS",
-      "JavaScript fundamentals & the DOM",
-      "Working with APIs and JSON",
-      "Introduction to React",
-      "Full-stack project & deployment",
-    ],
-  },
-  {
-    id: "ai-engineering",
-    slug: "ai-engineering",
-    title: "AI Engineering",
-    category: "Artificial Intelligence",
-    level: "Intermediate",
-    durationWeeks: 12,
-    instructorSlug: "hassan-raza",
-    summary: "Practical machine learning: from datasets to deployed models.",
-    description:
-      "Covers the applied ML workflow used in industry: cleaning and exploring data, training and evaluating models, and packaging a model behind an API. Assumes basic Python.",
-    syllabus: [
-      "Python for data & ML",
-      "Supervised learning fundamentals",
-      "Neural networks & training loops",
-      "Working with pretrained models",
-      "Deploying a model behind an API",
-    ],
-  },
-  {
-    id: "cybersecurity-fundamentals",
-    slug: "cybersecurity-fundamentals",
-    title: "Cybersecurity Fundamentals",
-    category: "Cybersecurity",
-    level: "Beginner",
-    durationWeeks: 8,
-    instructorSlug: "sara-malik",
-    summary: "Core security concepts, common attack patterns, and defensive practice.",
-    description:
-      "An entry point into security: how networks and systems get attacked, how to think like both attacker and defender, and how to apply that thinking in real codebases and infrastructure.",
-    syllabus: [
-      "Threat modeling basics",
-      "Network security fundamentals",
-      "Common web vulnerabilities (OWASP Top 10)",
-      "Authentication & access control",
-      "Incident response basics",
-    ],
-  },
-  {
-    id: "applied-cryptography",
-    slug: "applied-cryptography",
-    title: "Applied Cryptography",
-    category: "Cybersecurity",
-    level: "Advanced",
-    durationWeeks: 10,
-    instructorSlug: "sara-malik",
-    summary: "How the cryptographic primitives behind everyday security actually work.",
-    description:
-      "A hands-on look at the primitives underneath TLS, password storage, and secure messaging — symmetric and asymmetric encryption, hashing, and signatures — with an emphasis on correct real-world usage over pure theory.",
-    syllabus: [
-      "Symmetric encryption (AES, block modes)",
-      "Public-key cryptography (RSA, ECC)",
-      "Hashing & password storage",
-      "Digital signatures & certificates",
-      "Common cryptographic pitfalls",
-    ],
-  },
-];
-
-function getAll() {
-  return courses;
+function mapCourse(row) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    category: row.category,
+    level: row.level,
+    durationWeeks: row.duration_weeks,
+    instructorSlug: row.instructor_slug || "",
+    instructorName: row.instructor_name || null,
+    summary: row.summary,
+    description: row.description,
+    syllabus: row.syllabus || [],
+    createdAt: row.created_at,
+  };
 }
 
-function getById(id) {
-  return courses.find((c) => c.id === id);
+const SELECT_BASE = `
+  SELECT
+    courses.*,
+    instructors.slug AS instructor_slug,
+    instructors.name AS instructor_name
+  FROM courses
+  LEFT JOIN instructors ON instructors.id = courses.instructor_id
+`;
+
+// Lists courses with optional category/level filters, a free-text search
+// over title/summary, and pagination. Returns both the page of rows and
+// the total count (needed to compute totalPages) in one round trip using
+// a window function, rather than a second COUNT(*) query.
+async function getAll({ category, level, search, limit, offset } = {}) {
+  const conditions = [];
+  const params = [];
+
+  if (category) {
+    params.push(category);
+    conditions.push(`courses.category ILIKE $${params.length}`);
+  }
+  if (level) {
+    params.push(level);
+    conditions.push(`courses.level ILIKE $${params.length}`);
+  }
+  if (search) {
+    params.push(`%${search}%`);
+    conditions.push(`(courses.title ILIKE $${params.length} OR courses.summary ILIKE $${params.length})`);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  params.push(limit);
+  const limitParam = `$${params.length}`;
+  params.push(offset);
+  const offsetParam = `$${params.length}`;
+
+  const sql = `
+    SELECT courses.*, instructors.slug AS instructor_slug, instructors.name AS instructor_name,
+           COUNT(*) OVER() AS total_count
+    FROM courses
+    LEFT JOIN instructors ON instructors.id = courses.instructor_id
+    ${where}
+    ORDER BY courses.created_at DESC, courses.id DESC
+    LIMIT ${limitParam} OFFSET ${offsetParam}
+  `;
+
+  const { rows } = await query(sql, params);
+  const total = rows[0] ? Number(rows[0].total_count) : 0;
+  return { rows: rows.map(mapCourse), total };
 }
 
-function uniqueIdFromTitle(title) {
+async function getBySlug(slug) {
+  const { rows } = await query(`${SELECT_BASE} WHERE courses.slug = $1`, [slug]);
+  return rows[0] ? mapCourse(rows[0]) : undefined;
+}
+
+async function getById(id) {
+  const { rows } = await query(`${SELECT_BASE} WHERE courses.id = $1`, [id]);
+  return rows[0] ? mapCourse(rows[0]) : undefined;
+}
+
+async function resolveInstructorId(instructorSlug) {
+  if (!instructorSlug) return null;
+  const { rows } = await query("SELECT id FROM instructors WHERE slug = $1", [instructorSlug]);
+  if (!rows[0]) {
+    throw new ApiError(400, `Instructor "${instructorSlug}" does not exist`);
+  }
+  return rows[0].id;
+}
+
+async function uniqueSlugFromTitle(title) {
   const base = slugify(title) || "course";
-  let id = base;
+  let slug = base;
   let suffix = 2;
-  while (courses.some((c) => c.id === id)) {
-    id = `${base}-${suffix}`;
+  // Small tables, small course-creation volume — a loop is fine here
+  // rather than a more clever single-query approach.
+  while (true) {
+    const { rows } = await query("SELECT 1 FROM courses WHERE slug = $1", [slug]);
+    if (rows.length === 0) return slug;
+    slug = `${base}-${suffix}`;
     suffix += 1;
   }
-  return id;
 }
 
-function create(data) {
-  const id = uniqueIdFromTitle(data.title);
-  const course = {
-    id,
-    slug: id,
-    title: data.title,
-    category: data.category,
-    level: data.level,
-    durationWeeks: data.durationWeeks,
-    instructorSlug: data.instructorSlug || "",
-    summary: data.summary,
-    description: data.description || data.summary,
-    syllabus: Array.isArray(data.syllabus) ? data.syllabus : [],
+async function create(data) {
+  const slug = await uniqueSlugFromTitle(data.title);
+  const instructorId = await resolveInstructorId(data.instructorSlug);
+
+  const { rows } = await query(
+    `INSERT INTO courses (slug, title, category, level, duration_weeks, instructor_id, summary, description, syllabus)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id`,
+    [
+      slug,
+      data.title,
+      data.category,
+      data.level,
+      data.durationWeeks,
+      instructorId,
+      data.summary,
+      data.description || data.summary,
+      data.syllabus || [],
+    ]
+  );
+
+  return getById(rows[0].id);
+}
+
+// Partial update: only columns actually present in `data` are touched,
+// built as a dynamic SET clause so a PUT with just { durationWeeks: 12 }
+// doesn't overwrite the rest of the row.
+async function update(slug, data) {
+  const existing = await getBySlug(slug);
+  if (!existing) return undefined;
+
+  const fields = [];
+  const params = [];
+
+  const set = (column, value) => {
+    params.push(value);
+    fields.push(`${column} = $${params.length}`);
   };
-  courses.push(course);
-  return course;
+
+  if (data.title !== undefined) set("title", data.title);
+  if (data.category !== undefined) set("category", data.category);
+  if (data.level !== undefined) set("level", data.level);
+  if (data.durationWeeks !== undefined) set("duration_weeks", data.durationWeeks);
+  if (data.summary !== undefined) set("summary", data.summary);
+  if (data.description !== undefined) set("description", data.description);
+  if (data.syllabus !== undefined) set("syllabus", data.syllabus);
+  if (data.instructorSlug !== undefined) {
+    set("instructor_id", await resolveInstructorId(data.instructorSlug));
+  }
+
+  if (fields.length === 0) return existing;
+
+  params.push(slug);
+  await query(`UPDATE courses SET ${fields.join(", ")} WHERE slug = $${params.length}`, params);
+
+  return getBySlug(slug);
 }
 
-function update(id, data) {
-  const index = courses.findIndex((c) => c.id === id);
-  if (index === -1) return undefined;
-
-  // Partial update: only overwrite fields that were actually sent, so a
-  // PUT with just { durationWeeks: 12 } doesn't blank out the rest.
-  const existing = courses[index];
-  const updated = {
-    ...existing,
-    ...data,
-    id: existing.id, // id/slug never change via update
-    slug: existing.slug,
-  };
-  courses[index] = updated;
-  return updated;
+async function remove(slug) {
+  const { rowCount } = await query("DELETE FROM courses WHERE slug = $1", [slug]);
+  return rowCount > 0;
 }
 
-function remove(id) {
-  const index = courses.findIndex((c) => c.id === id);
-  if (index === -1) return false;
-  courses.splice(index, 1);
-  return true;
-}
-
-module.exports = { getAll, getById, create, update, remove };
+module.exports = { getAll, getBySlug, getById, create, update, remove };
